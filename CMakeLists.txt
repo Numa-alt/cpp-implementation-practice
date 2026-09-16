@@ -14,12 +14,20 @@ add_executable(task_02_party
     task-02-party/main.cpp
 )
 
+add_executable(task_03_inventory
+    task-03-inventory/main.cpp
+)
+
 if(MSVC)
     target_compile_options(task_01_task_manager PRIVATE
         /W4
         /utf-8
     )
     target_compile_options(task_02_party PRIVATE
+        /W4
+        /utf-8
+    )
+    target_compile_options(task_03_inventory PRIVATE
         /W4
         /utf-8
     )
@@ -30,6 +38,11 @@ else()
         -pedantic
     )
     target_compile_options(task_02_party PRIVATE
+        -Wall
+        -Wextra
+        -pedantic
+    )
+    target_compile_options(task_03_inventory PRIVATE
         -Wall
         -Wextra
         -pedantic
