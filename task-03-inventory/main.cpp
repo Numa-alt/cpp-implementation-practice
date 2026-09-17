@@ -64,7 +64,7 @@ private:
     // 商品検索
     // 商品コードで商品を検索する
     // 存在しない場合はnullptrを返す
-    Product *FindProductReadWrite(const std::string &code)
+    Product *ReadWrite(const std::string &code)
     {
         auto it = std::find_if(
             mProducts.begin(),
@@ -108,6 +108,8 @@ public:
         }
 
         mProducts.emplace_back(code, name, price, stock);
+
+        return true;
     }
 
     // 商品検索
@@ -135,7 +137,7 @@ public:
     // 商品が存在しない、数量が０以下
     bool StockIn(const std::string &code, int num)
     {
-        auto p = FindProductReadWrite(code);
+        auto p = ReadWrite(code);
 
         if (p == nullptr)
         {
@@ -143,12 +145,7 @@ public:
             return false;
         }
 
-        if (num <= 0)
-        {
-            // 不正な数量
-            return false;
-        }
-        p->StockIn(num);
+        return p->StockIn(num);
     }
 
     // 出庫
@@ -159,31 +156,19 @@ public:
     // 失敗した場合在庫数は変更しない
     bool StockOut(const std::string &code, int num)
     {
-        auto p = FindProductReadWrite(code);
+        auto p = ReadWrite(code);
         if (p == nullptr)
         {
             // 商品が存在しない
             return false;
         }
 
-        if (num <= 0)
-        {
-            // 出庫数が０以下
-            return false;
-        }
-
-        if (p->GetStock() < num)
-        {
-            // 在庫より多く出庫しようとした
-            return false;
-        }
-
-        p->StockOut(num);
+        return p->StockOut(num);
     }
 
     // 在庫切れの商品の取得
     // もと商品の順番を変更しないこと
-    std::vector<const Product *> GetEmptyList() const
+    std::vector<const Product *> GetOutOfStockList() const
     {
         std::vector<const Product *> list;
 
@@ -208,7 +193,7 @@ public:
     long long TotalPrice() const
     {
         long long totalPrice = 0;
-        for (const auto p : mProducts)
+        for (const auto& p : mProducts)
         {
             totalPrice += p.CalcTotalPrice();
         }
@@ -228,6 +213,17 @@ void DisplayInventory(const std::vector<Product> list)
     std::cout << "\n";
 }
 
+void DisplayInventory( const std::vector<const Product*> list)
+{
+    std::cout << "inventory" << "\n";
+    for (const auto &p : list)
+    {
+        std::cout << "    " << p->GetCode() << " " << p->GetName() << " " << p->GetPrice() << " x " << p->GetStock() << "\n";
+        ;
+    }
+    std::cout << "\n";
+}
+
 int main()
 {
     Inventory inventory;
@@ -238,6 +234,16 @@ int main()
     std::cout << "register C001 in 0 result " << r0 << "\n";
     inventory.RegisterProduct("D001", "Book", 220, 30);
 
+    bool sameId = inventory.RegisterProduct("B001","Note",20,10);
+    std::cout<<"sameId register "<< sameId << "\n";
+
+    bool zeroPrice = inventory.RegisterProduct("E001","Note",0,10);
+    std::cout<<"zeroPrice register "<< zeroPrice << "\n";
+
+    bool minusStock = inventory.RegisterProduct("F001","Note",10,-10);
+    std::cout<<"minusStock register "<< minusStock << "\n";
+
+    
     DisplayInventory(inventory.GetList());
     std::cout << "TotalPrice " << inventory.TotalPrice() << "\n";
 
@@ -248,7 +254,7 @@ int main()
     std::cout << "TotalPrice " << inventory.TotalPrice() << "\n";
 
     std::cout << "B001 out 10";
-    bool b1 = inventory.StockOut("B001", 1);
+    bool b1 = inventory.StockOut("B001", 10);
     std::cout << "result " << b1 << "\n";
     DisplayInventory(inventory.GetList());
     std::cout << "TotalPrice " << inventory.TotalPrice() << "\n";
@@ -259,6 +265,20 @@ int main()
 
     DisplayInventory(inventory.GetList());
     std::cout << "TotalPrice " << inventory.TotalPrice() << "\n";
+
+    //存在しない商品への入庫
+    bool notExistProductStockIn = inventory.StockIn("H001",10);
+    std::cout<<"notExistProductStockIn " << notExistProductStockIn << "\n";
+
+    //在庫に０個追加
+    bool zeroStockIn = inventory.StockIn("A001",0);
+    std::cout<<"zeroStockIn "<<zeroStockIn<<"\n";
+
+    //在庫数を超える出庫
+    bool overStockOut = inventory.StockOut("A001",500);
+    std::cout<<"overStockOut "<<overStockOut<<"\n";
+
+    DisplayInventory( inventory.GetOutOfStockList() );
 
     return 0;
 }
