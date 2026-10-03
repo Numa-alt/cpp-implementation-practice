@@ -45,7 +45,7 @@ public:
         {
             // 不正な個数を入庫しようとした
             return false;
-        }
+    }
         mStock += num;
         return true;
     }
