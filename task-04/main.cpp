@@ -1,68 +1,56 @@
-#include <iostream>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <thread>
+// #include <iostream>
+// #include <queue>
+// #include <mutex>
+// #include <condition_variable>
+// #include <thread>
 
-std::queue<int> jobs;
-std::mutex m;
-std::condition_variable cv;
-std::condition_variable doneCv;
+// std::queue<int> jobs;
+// std::mutex m;
+// std::condition_variable cv;
+// std::condition_variable doneCv;
 
-int doneCount = 0;
+// int doneCount = 0;
 
-void Worker(std::stop_token st, int id)
-{
-    while (!st.stop_requested())
-    {
-        int job = 0;
-        {
-            std::unique_lock<std::mutex> lock(m);
+// void Worker(std::stop_token st, int id)
+// {
+//     while (!st.stop_requested())
+//     {
+//         int job = 0;
+//         {
+//             std::unique_lock<std::mutex> lock(m);
 
-            cv.wait(lock, [&st]()
-                    { return st.stop_requested() || !jobs.empty(); });
+//             cv.wait(lock, [&st]()
+//                     { return st.stop_requested() || !jobs.empty(); });
 
-            if (st.stop_requested())
-            {
-                break;
-            }
-            job = jobs.front();
-            jobs.pop();
-        }
+//             if (st.stop_requested())
+//             {
+//                 break;
+//             }
+//             job = jobs.front();
+//             jobs.pop();
+//         }
 
-        // 重い処理
-        std::cout << "id " << id << " job = " << job << "\n";
+//         // 重い処理
+//         std::cout << "id " << id << " job = " << job << "\n";
 
-        {
-            std::lock_guard<std::mutex> lock(m);
-            ++doneCount;
-        }
+//         {
+//             std::lock_guard<std::mutex> lock(m);
+//             ++doneCount;
+//         }
 
-        doneCv.notify_one();
-    }
-    std::cout << "Worker " << id << " stopped\n";
-}
+//         doneCv.notify_one();
+//     }
+//     std::cout << "Worker " << id << " stopped\n";
+// }
 
-#include <concepts>
-#include <string>
-#include <iostream>
+// #include <concepts>
+// #include <string>
+// #include <iostream>
 
-template<class T>
-concept Addable = 
-    requires(T a, T b)
-    {
-        {a + b } -> std::same_as<T>;
-    };
-
-template<Addable T>
-T Add( T a, T b )
-{
-    return a + b;
-}
 
 
 int main()
-{
-    return 0;
-}
+ {
+     return 0;
+ }
 

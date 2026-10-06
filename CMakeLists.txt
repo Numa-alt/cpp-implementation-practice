@@ -26,6 +26,11 @@ add_executable(task_05_background_task_manager
     task-05-background-task-manager/main.cpp
 )
 
+add_executable(task_06_thread_02
+    task-06-thread-02/main.cpp
+)
+
+
 if(MSVC)
     target_compile_options(task_01_task_manager PRIVATE
         /W4
@@ -44,6 +49,10 @@ if(MSVC)
         /utf-8
     )
     target_compile_options(task_05_background_task_manager PRIVATE
+        /W4
+        /utf-8
+    )
+    target_compile_options(task_06_thread_02 PRIVATE
         /W4
         /utf-8
     )
@@ -69,6 +78,11 @@ else()
         -pedantic
     )
     target_compile_options(task_05_background_task_manager PRIVATE
+        -Wall
+        -Wextra
+        -pedantic
+    )
+    target_compile_options(task_06_thread_02 PRIVATE
         -Wall
         -Wextra
         -pedantic
