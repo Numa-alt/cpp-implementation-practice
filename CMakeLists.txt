@@ -30,6 +30,9 @@ add_executable(task_06_thread_02
     task-06-thread-02/main.cpp
 )
 
+add_executable(task_08_thread_04
+    task-08-thread-04/main.cpp
+)
 
 if(MSVC)
     target_compile_options(task_01_task_manager PRIVATE
@@ -56,7 +59,11 @@ if(MSVC)
         /W4
         /utf-8
     )
-else()
+    target_compile_options(task_08_thread_04 PRIVATE
+            /W4
+            /utf-8
+    )
+    else()
     target_compile_options(task_01_task_manager PRIVATE
         -Wall
         -Wextra
@@ -83,6 +90,11 @@ else()
         -pedantic
     )
     target_compile_options(task_06_thread_02 PRIVATE
+        -Wall
+        -Wextra
+        -pedantic
+    )
+    target_compile_options(task_08_thread_04 PRIVATE
         -Wall
         -Wextra
         -pedantic
