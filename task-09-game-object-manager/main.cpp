@@ -14,6 +14,8 @@ public:
     BaseObject(int id, float x, float y) : mId(id), mX(x), mY(y)
     {
     }
+    virtual ~BaseObject() = default;
+
     virtual void Update() = 0;
 
     int GetId() const { return mId; }
@@ -32,7 +34,7 @@ public:
     Character(int id, float x, float y, int hp) : BaseObject(id, x, y), mHp(hp)
     {
     }
-    virtual void Update() = 0;
+
     int GetHp() const { return mHp; }
     void SetHp(int hp) { mHp = hp; }
 };
@@ -153,6 +155,38 @@ int main()
 
     std::unique_ptr<BaseObject> player = std::make_unique<Player>(1, 10.0f, 0.0f, 100);
     manager.AddObject(player);
+
+    std::unique_ptr<BaseObject> enemy = std::make_unique<Enemy>(2, 20.0f, 0.0f, 50);
+    manager.AddObject(enemy);
+
+    std::unique_ptr<BaseObject> item = std::make_unique<Item>(3, 30.0f, 0.0f);
+    manager.AddObject(item);
+
+    manager.UpdateAll();
+
+    const BaseObject *o1 = manager.FindObject(1);
+    if (o1)
+    {
+        std::cout << "o1 x " << o1->GetX() << std::endl;
+    }
+    const BaseObject *o2 = manager.FindObject(2);
+    if (o2)
+    {
+        std::cout << "o2 x " << o2->GetX() << std::endl;
+    }
+    const BaseObject *o3 = manager.FindObject(3);
+    if (o3)
+    {
+        std::cout << "o3 x " << o3->GetX() << std::endl;
+    }
+
+    manager.RemoveObject(2);
+
+    const BaseObject *o2d = manager.FindObject(2);
+    if (o2d == nullptr)
+    {
+        std::cout << "removed 2 object" << std::endl;
+    }
 
     return 0;
 }
