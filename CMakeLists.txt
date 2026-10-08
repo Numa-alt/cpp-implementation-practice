@@ -34,6 +34,10 @@ add_executable(task_08_thread_04
     task-08-thread-04/main.cpp
 )
 
+add_executable(task_09_game_object_manager
+    task-09-game-object-manager/main.cpp
+)
+
 if(MSVC)
     target_compile_options(task_01_task_manager PRIVATE
         /W4
@@ -95,6 +99,11 @@ if(MSVC)
         -pedantic
     )
     target_compile_options(task_08_thread_04 PRIVATE
+        -Wall
+        -Wextra
+        -pedantic
+    )
+    target_compile_options(task_09_game_object_manager PRIVATE
         -Wall
         -Wextra
         -pedantic
