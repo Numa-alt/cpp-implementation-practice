@@ -83,6 +83,10 @@ class GameObjectManager
 private:
     std::vector<std::unique_ptr<BaseObject>> mObjects;
 
+    std::vector<int> mPendingDeleteIds;
+
+    bool mIsUpdating = false;
+
 public:
     ~GameObjectManager() = default;
 
@@ -105,10 +109,14 @@ public:
 
     void UpdateAll()
     {
+        mIsUpdating = true;
         for (auto &o : mObjects)
         {
             o->Update();
         }
+        mIsUpdating = false;
+
+        FlushPendingDeletes();
     }
 
     const BaseObject *FindObject(int id) const
@@ -129,6 +137,11 @@ public:
 
     bool RemoveObject(int id)
     {
+        if (mIsUpdating)
+        {
+            return RequestRemoveObject(id);
+        }
+
         auto newEnd = std::remove_if(
             mObjects.begin(),
             mObjects.end(),
@@ -144,6 +157,59 @@ public:
         }
 
         return false;
+    }
+
+    bool RequestRemoveObject(int id)
+    {
+        // 指定のIDのオブジェクトが存在するか
+        auto object = FindObject(id);
+        if (object == nullptr)
+        {
+            return false;
+        }
+
+        // 既に削除予定されているか？
+        auto it = std::find_if(mPendingDeleteIds.begin(), mPendingDeleteIds.end(), [id](int pendingId)
+                               { return pendingId == id; });
+        if (it != mPendingDeleteIds.end())
+        {
+            return false;
+        }
+
+        mPendingDeleteIds.push_back(id);
+
+        return true;
+    }
+
+    // 削除予定のオブジェクトを削除する
+    void FlushPendingDeletes()
+    {
+        // 削除予定が存在する？
+        if (mPendingDeleteIds.empty())
+        {
+            return;
+        }
+
+        auto newEnd = std::remove_if(
+            mObjects.begin(),
+            mObjects.end(),
+            [&](const std::unique_ptr<BaseObject> &o)
+            {
+                for (auto id : mPendingDeleteIds)
+                {
+                    if (id == o->GetId())
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        if (newEnd != mObjects.end())
+        {
+            // 削除
+            mObjects.erase(newEnd, mObjects.end());
+        }
+        mPendingDeleteIds.clear();
     }
 };
 
@@ -186,6 +252,22 @@ int main()
     if (o2d == nullptr)
     {
         std::cout << "removed 2 object" << std::endl;
+    }
+
+    std::unique_ptr<BaseObject> duplicate = std::make_unique<Enemy>(1, 50, 0.0f, 80);
+    bool result = manager.AddObject(duplicate);
+    if (!result)
+    {
+        if (duplicate != nullptr)
+        {
+            std::cout << "dup x " << duplicate->GetX() << std::endl;
+        }
+    }
+
+    const BaseObject *o1chk = manager.FindObject(1);
+    if (o1chk)
+    {
+        std::cout << "o1chk x " << o1chk->GetX() << std::endl;
     }
 
     return 0;
