@@ -59,18 +59,34 @@ private:
 class EventDispatcher
 {
 private:
-    // std::vector<std::function<void()>> mCallbacks;
     std::map<Event, std::vector<Callback>> mCallbacks;
 
     unsigned int mNextId = 0;
 
     unsigned int mPublishDepth = 0;
+
     std::vector<DeleteEvent> mPendingDeletes;
     std::vector<SubscribeEvent> mPendingSubscribe;
 
     void SubscribeInternal(Event event, unsigned int id, std::function<void()> callback)
     {
         mCallbacks[event].emplace_back(id, std::move(callback));
+    }
+
+    void FlushPendingOperations()
+    {
+        for (auto &e : mPendingDeletes)
+        {
+            Unsubscribe(e.mEvent, e.mId);
+        }
+        mPendingDeletes.clear();
+
+        for (auto &e : mPendingSubscribe)
+        {
+            SubscribeInternal(e.mEvent, e.mId, std::move(e.mCallback));
+        }
+
+        mPendingSubscribe.clear();
     }
 
 public:
@@ -143,31 +159,34 @@ public:
             return;
         }
 
-        mPublishDepth++;
+        //        mPublishDepth++;
 
-        std::cout << "mPublishDepth=" << mPublishDepth << std::endl;
-
-        for (const auto &cb : it->second)
+        try
         {
-            cb.mCallback();
-        }
-        mPublishDepth--;
-        std::cout << "mPublishDepth=" << mPublishDepth << std::endl;
+            PublishGuard publishGuard(mPublishDepth);
 
+            std::cout << "mPublishDepth=" << mPublishDepth << std::endl;
+
+            for (const auto &cb : it->second)
+            {
+                cb.mCallback();
+            }
+        }
+        catch (...)
+        {
+            // PublishGuardのデストラクタはすでに呼ばれている
+            //->mPublishDepthは1段戻っている
+            if (mPublishDepth == 0)
+            {
+                FlushPendingOperations();
+            }
+            throw; // 捕まえた例外を再送出
+        }
+        //        mPublishDepth--;
+        std::cout << "mPublishDepth=" << mPublishDepth << std::endl;
         if (mPublishDepth == 0)
         {
-            for (auto &e : mPendingDeletes)
-            {
-                Unsubscribe(e.mEvent, e.mId);
-            }
-            mPendingDeletes.clear();
-
-            for (auto &e : mPendingSubscribe)
-            {
-                SubscribeInternal(e.mEvent, e.mId, std::move(e.mCallback));
-            }
-
-            mPendingSubscribe.clear();
+            FlushPendingOperations();
         }
     }
 };
@@ -192,7 +211,11 @@ int main()
                 itemCreateId =
                     eventDispatcher.Subscribe(
                         Event::ItemCreated,
-                        []() {});
+                        []()
+                        {
+                            std::cout << "item created callback\n";
+                        });
+                throw std::runtime_error("test exeption");
             });
 
     unsigned int id1 = eventDispatcher.Subscribe(Event::EnemyDefeated, [&eventDispatcher, id0]()
@@ -230,7 +253,16 @@ int main()
 
     std::cout << "event publish" << std::endl;
 
-    eventDispatcher.Publish(Event::PlayerDamaged);
+    try
+    {
+        eventDispatcher.Publish(Event::PlayerDamaged);
+    }
+    catch (const std::exception &e)
+    {
+        std::cout << "caught: " << e.what() << std::endl;
+    }
+
+    eventDispatcher.Publish(Event::ItemCreated);
 
     eventDispatcher.Publish(Event::EnemyDefeated);
 
