@@ -4,6 +4,7 @@
 #include <utility>
 #include <map>
 #include <algorithm>
+#include <stdexcept>
 
 enum class Event
 {
