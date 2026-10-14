@@ -9,6 +9,7 @@ enum class Event
 {
     EnemyDefeated,
     PlayerDamaged,
+    ItemCreated,
 };
 
 struct DeleteEvent
@@ -20,6 +21,16 @@ struct DeleteEvent
     unsigned int mId;
 };
 
+struct SubscribeEvent
+{
+    SubscribeEvent(Event event, std::function<void()> callback, unsigned int id) : mEvent(event), mCallback(std::move(callback)), mId(id)
+    {
+    }
+    Event mEvent;
+    std::function<void()> mCallback;
+    unsigned int mId;
+};
+
 struct Callback
 {
     Callback(unsigned int id, std::function<void()> callback) : mId(id), mCallback(std::move(callback))
@@ -28,6 +39,23 @@ struct Callback
     std::function<void()> mCallback;
     unsigned int mId;
 };
+
+class PublishGuard
+{
+public:
+    PublishGuard(unsigned int &depth) : mDepth(depth)
+    {
+        ++mDepth;
+    }
+    ~PublishGuard()
+    {
+        --mDepth;
+    }
+
+private:
+    unsigned int &mDepth;
+};
+
 class EventDispatcher
 {
 private:
@@ -36,14 +64,29 @@ private:
 
     unsigned int mNextId = 0;
 
-    bool mIsPublishExecuting = false;
+    unsigned int mPublishDepth = 0;
     std::vector<DeleteEvent> mPendingDeletes;
+    std::vector<SubscribeEvent> mPendingSubscribe;
+
+    void SubscribeInternal(Event event, unsigned int id, std::function<void()> callback)
+    {
+        mCallbacks[event].emplace_back(id, std::move(callback));
+    }
 
 public:
     unsigned int Subscribe(Event event, std::function<void()> callback)
     {
         mNextId++;
-        mCallbacks[event].emplace_back(mNextId, std::move(callback));
+
+        if (mPublishDepth > 0)
+        {
+            std::cout << "pending subscribe id=" << mNextId << std::endl;
+            mPendingSubscribe.emplace_back(event, std::move(callback), mNextId);
+        }
+        else
+        {
+            mCallbacks[event].emplace_back(mNextId, std::move(callback));
+        }
         return mNextId;
     }
     bool Unsubscribe(Event event, unsigned int id)
@@ -70,7 +113,7 @@ public:
 
         if (it != callbacks.end())
         {
-            if (mIsPublishExecuting)
+            if (mPublishDepth > 0)
             {
                 auto itDe = std::find_if(mPendingDeletes.begin(), mPendingDeletes.end(), [event, id](const DeleteEvent &e)
                                          { return (event == e.mEvent) && (id == e.mId); });
@@ -100,19 +143,32 @@ public:
             return;
         }
 
-        mIsPublishExecuting = true;
+        mPublishDepth++;
+
+        std::cout << "mPublishDepth=" << mPublishDepth << std::endl;
 
         for (const auto &cb : it->second)
         {
             cb.mCallback();
         }
-        mIsPublishExecuting = false;
+        mPublishDepth--;
+        std::cout << "mPublishDepth=" << mPublishDepth << std::endl;
 
-        for (auto e : mPendingDeletes)
+        if (mPublishDepth == 0)
         {
-            Unsubscribe(e.mEvent, e.mId);
+            for (auto &e : mPendingDeletes)
+            {
+                Unsubscribe(e.mEvent, e.mId);
+            }
+            mPendingDeletes.clear();
+
+            for (auto &e : mPendingSubscribe)
+            {
+                SubscribeInternal(e.mEvent, e.mId, std::move(e.mCallback));
+            }
+
+            mPendingSubscribe.clear();
         }
-        mPendingDeletes.clear();
     }
 };
 
@@ -121,13 +177,29 @@ int main()
     std::cout << "event dispatcher start" << std::endl;
 
     int score = 0;
+    unsigned int itemCreateId = 0;
 
     EventDispatcher eventDispatcher;
 
-    unsigned int id0 = eventDispatcher.Subscribe(Event::PlayerDamaged, [&score]()
-                                                 { score+=100; std::cout << "score + 100" << std::endl; });
+    unsigned int id0 =
+        eventDispatcher.Subscribe(
+            Event::PlayerDamaged,
+            [&score, &eventDispatcher, &itemCreateId]()
+            {
+                score += 100;
+                std::cout << "score + 100" << std::endl;
+
+                itemCreateId =
+                    eventDispatcher.Subscribe(
+                        Event::ItemCreated,
+                        []() {});
+            });
+
     unsigned int id1 = eventDispatcher.Subscribe(Event::EnemyDefeated, [&eventDispatcher, id0]()
-                                                 { std::cout << "enemy defeated" << std::endl; eventDispatcher.Unsubscribe(Event::PlayerDamaged,id0); });
+                                                 {
+                                                     std::cout << "enemy defeated" << std::endl;
+                                                     eventDispatcher.Publish(Event::ItemCreated);
+                                                     eventDispatcher.Unsubscribe(Event::PlayerDamaged, id0); });
 
     std::cout << "id0 = " << id0 << " id1 = " << id1 << std::endl;
 
@@ -157,6 +229,9 @@ int main()
     // }
 
     std::cout << "event publish" << std::endl;
+
+    eventDispatcher.Publish(Event::PlayerDamaged);
+
     eventDispatcher.Publish(Event::EnemyDefeated);
 
     bool f3 = eventDispatcher.Unsubscribe(Event::PlayerDamaged, id1);
@@ -169,7 +244,7 @@ int main()
         std::cout << "failed unsubscribe Event::PlayerDamaged id " << id1 << std::endl;
     }
 
-    eventDispatcher.Publish(Event::PlayerDamaged);
+    std::cout << "item create id = " << itemCreateId << std::endl;
 
     return 0;
 }
