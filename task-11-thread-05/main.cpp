@@ -4,6 +4,7 @@
 #include <mutex>
 #include <queue>
 #include <algorithm>
+#include <chrono>
 
 struct Task
 {
@@ -20,12 +21,15 @@ private:
     std::queue<Task> mTasks;
 
     std::condition_variable mCv;
+    std::condition_variable mCompleteCv;
 
     std::mutex mMutex;
 
     std::thread mThread;
 
     bool mStopping = false;
+
+    bool mExecuting = false;
 
     void WorkerLoop()
     {
@@ -47,7 +51,18 @@ private:
             Task task = mTasks.front();
             mTasks.pop();
 
+            mExecuting = true;
+
             lock.unlock();
+
+            // タスクを実行する
+            std::this_thread::sleep_for(std::chrono::milliseconds(task.mProcessTimeMs));
+
+            lock.lock();
+            mExecuting = false;
+
+            // スコープの終わりでlockは自動的にlock.unlock()される
+            // lock.unlock();
         }
     }
 
@@ -66,13 +81,32 @@ public:
     // タスクを追加
     bool AddTask(int taskId, unsigned long processTimeMs)
     {
-        mTasks.emplace(taskId, processTimeMs);
+        {
+            std::lock_guard<std::mutex> lock(mMutex);
+            if (mStopping)
+            {
+                return false;
+            }
+
+            // タスクをキューに追加
+            mTasks.emplace(taskId, processTimeMs);
+
+            // mutexを解除
+        }
+
+        // 待機中のワーカーを起こす
+        mCv.notify_one();
+
         return true;
     }
 
     void WaitComplete()
     {
         // キューが空で処理中のタスクがなくなるまでまつ
+        std::unique_lock<std::mutex> lock(mMutex);
+
+        mCompleteCv.wait(lock, [&]()
+                         { return !mExecuting && mTasks.empty(); });
     }
 };
 
