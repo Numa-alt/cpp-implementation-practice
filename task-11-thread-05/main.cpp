@@ -61,8 +61,16 @@ private:
             lock.lock();
             mExecuting = false;
 
+            bool complete = mTasks.empty();
+
             // スコープの終わりでlockは自動的にlock.unlock()される
-            // lock.unlock();
+            // しかし、notify_all()を呼ぶためにここでロック解除する
+            lock.unlock();
+
+            if (complete)
+            {
+                mCompleteCv.notify_all();
+            }
         }
     }
 
@@ -75,7 +83,21 @@ public:
 
     ~ThreadTaskQueue()
     {
-        //
+        // 共有変数をロックして終了要求を立てる
+        std::unique_lock<std::mutex> lock(mMutex);
+        mStopping = true;
+
+        // wait中のWorkerを起こす
+        mCv.notify_all();
+
+        lock.unlock();
+
+        // そのstd::threadが今join()またはdetach()できる状態かを確認
+        if (mThread.joinable())
+        {
+            // Worker終了を待つ
+            mThread.join();
+        }
     }
 
     // タスクを追加
@@ -136,7 +158,7 @@ int main()
         WorkerLoop()
         while(1){
             TaskQueueを確認。
-            Taskが空、かつ処理中のタスクがなければ終了
+            終了用雨旧があり、Taskが空、かつ処理中のタスクがなければ終了
             TaskQueueから１つ取り出す
             タスクを実行
             タスクが終了
