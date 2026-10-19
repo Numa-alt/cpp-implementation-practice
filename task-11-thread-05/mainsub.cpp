@@ -1,11 +1,12 @@
 #include <iostream>
 #include <thread>
-#inlucde < condition_variable>
+#include <condition_variable>
 #include <mutex>
 #include <queue>
 #include <algorithm>
 #include <chrono>
 
+#if 0
 struct Task
 {
     Task(int taskId, unsigned long processTImeMs) : mTaskId(taskId), mProcessTimeMs(processTimeMs)
@@ -373,6 +374,127 @@ int main()
     tm.AddTas(2, 100);
     tm.AddTas(3, 100);
     tm.AddTas(4, 100);
+    tm.WaitComplete();
+    return 0;
+}
+#endif
+
+struct Task
+{
+    int mId;
+    unsigned long mProcessTimeMs;
+    Task(int id, unsigned long processTimeMs) : mId(id), mProcessTimeMs(processTimeMs)
+    {
+    }
+};
+
+class TaskManager
+{
+private:
+    int mActiveTaskCount = 0;
+    bool mStopping = false;
+    std::thread mThreadA;
+    std::thread mThreadB;
+    std::mutex mMutex;
+    std::condition_variable mCv;
+    std::condition_variable mCvWaitComplete;
+    std::condition_variable mCoutCv;
+    std::queue<Task> mTasks;
+
+    void Worker()
+    {
+        while (true)
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+
+            if (mStopping && mTasks.empty())
+            {
+                break;
+            }
+
+            mCv.wait(lock, [&]()
+                     { return mStopping || !mTasks.empty(); });
+
+            if (mStopping && mTasks.empty())
+            {
+                break;
+            }
+
+            mActiveTaskCount++;
+
+            Task task = mTasks.front();
+            mTasks.pop();
+
+            lock.unlock();
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(task.mProcessTimeMs));
+
+            lock.lock();
+
+            mActiveTaskCount--;
+            bool complete = (mActiveTaskCount == 0) && mTasks.empty();
+
+            lock.unlock();
+
+            if (complete)
+            {
+                mCvWaitComplete.notify_all();
+            }
+        }
+    }
+
+public:
+    TaskManager()
+    {
+        mThreadA = std::thread(&TaskManager::Worker, this);
+        mThreadB = std::thread(&TaskManager::Worker, this);
+    }
+    ~TaskManager()
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+
+        mStopping = true;
+
+        mCv.wait(lock, [&]()
+                 { return (mActiveTaskCount == 0) && mTasks.empty(); });
+
+        lock.unlock();
+
+        if (mThreadA.joinable())
+        {
+            mThreadA.join();
+        }
+        if (mThreadB.joinable())
+        {
+            mThreadB.join();
+        }
+    }
+    bool AddTask(int id, unsigned long processTimeMs)
+    {
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+
+            mTasks.emplace(id, processTimeMs);
+        }
+
+        mCv.notify_one();
+    }
+    void WaitComplete()
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+
+        mCvWaitComplete.wait(lock, [&]()
+                             { return (mActiveTaskCount == 0) && mTasks.empty(); });
+    }
+};
+
+int main()
+{
+    TaskManager tm;
+    tm.AddTask(1, 200);
+    tm.AddTask(2, 150);
+    tm.AddTask(3, 400);
+    tm.AddTask(4, 200);
     tm.WaitComplete();
     return 0;
 }
