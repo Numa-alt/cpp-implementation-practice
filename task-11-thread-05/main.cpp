@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 
+#if 0
 struct Task
 {
     Task(int taskId, unsigned long processTimeMs) : mTaskId(taskId), mProcessTimeMs(processTimeMs)
@@ -149,25 +150,242 @@ int main()
     std::cout << "task-11-thread-05 end\n";
     return 0;
 }
+#endif
 
-/*
-    スレッドのメモ
+struct Task
+{
+    int mTaskId;
+    unsigned long mProcessTimeMs;
+    Task(int taskId, int processTimeMs) : mTaskId(taskId), mProcessTimeMs(processTimeMs)
+    {
+    }
+};
 
-        スレッドでWorkerLoopを実行
+class TaskManager
+{
+private:
+    int mActiveTaskCount = 0;
+    bool mStopping = false;
 
-        WorkerLoop()
-        while(1){
-            TaskQueueを確認。
-            終了用雨旧があり、Taskが空、かつ処理中のタスクがなければ終了
-            TaskQueueから１つ取り出す
-            タスクを実行
-            タスクが終了
+    // std::array<std::thread, 2> mThreads;
+    // std::thread mThreadA;
+    std::thread mThreadA;
+    std::thread mThreadB;
+    // std::thread mThreadB;
+
+    std::mutex mMutex;
+    std::mutex mCoutMutex;
+    std::condition_variable mCv;
+    std::condition_variable mCvWaitComplete;
+    std::queue<Task> mTasks;
+
+    void Worker()
+    {
+        while (true)
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+
+            mCv.wait(lock, [&]()
+                     { return mStopping || !mTasks.empty(); });
+
+            if (mStopping && mTasks.empty())
+            {
+                break;
+            }
+
+            Task task = mTasks.front();
+            mTasks.pop();
+            mActiveTaskCount++;
+            lock.unlock();
+
+            {
+                std::lock_guard<std::mutex> lock(mCoutMutex);
+                std::cout << "START taskId: " << task.mTaskId << " " << task.mProcessTimeMs << "ms" << std::endl;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(task.mProcessTimeMs));
+
+            {
+                std::lock_guard<std::mutex> lock(mCoutMutex);
+                std::cout << "END taskId: " << task.mTaskId << " " << task.mProcessTimeMs << "ms" << std::endl;
+            }
+
+            lock.lock();
+            mActiveTaskCount--;
+
+            bool complete = mTasks.empty() && (mActiveTaskCount == 0);
+            int size = mTasks.size();
+
+            lock.unlock();
+
+            {
+                std::lock_guard<std::mutex> lock(mCoutMutex);
+                std::cout << "complete: " << complete << " size:" << size << std::endl;
+            }
+
+            if (complete)
+            {
+                mCvWaitComplete.notify_all();
+            }
         }
 
+        {
+            std::lock_guard<std::mutex> lock(mCoutMutex);
+            std::cout << "end worker " << std::endl;
+        }
+    }
 
-        std::thread を宣言。
-        コンストラクタに、
-            実行するメンバ関数(ThreadTaskQueue::WorkerLoop)
-            どのインスタンスのWorkerLoopを呼ぶのか指定するためthis
-        を指定
-*/
+public:
+    TaskManager()
+    {
+        mThreadA = std::thread(&TaskManager::Worker, this);
+        mThreadB = std::thread(&TaskManager::Worker, this);
+    }
+    ~TaskManager()
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+
+        mStopping = true;
+        mCv.notify_all();
+
+        lock.unlock();
+
+        if (mThreadA.joinable())
+        {
+            mThreadA.join();
+        }
+        if (mThreadB.joinable())
+        {
+            mThreadB.join();
+        }
+
+        std::cout << "task manager destructor  \n";
+    }
+    bool AddTask(int taskId, unsigned long processTimeMs)
+    {
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+
+            if (mStopping)
+            {
+                return false;
+            }
+
+            mTasks.emplace(taskId, processTimeMs);
+        }
+        mCv.notify_one();
+
+        return true;
+    }
+    void WaitComplete()
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+
+        mCvWaitComplete.wait(lock, [&]()
+                             { return (mActiveTaskCount == 0) && mTasks.empty(); });
+    }
+};
+
+int main()
+{
+    std::cout << "CHECK START\n";
+
+    TaskManager tm;
+    std::cout << "add tasks \n";
+    tm.AddTask(1, 200);
+    tm.AddTask(2, 100);
+    tm.AddTask(3, 150);
+    tm.AddTask(4, 300);
+    std::cout << "wait complete \n";
+    tm.WaitComplete();
+
+    std::cout << "CHECK END\n";
+    return 0;
+}
+
+struct Task
+{
+    int mId;
+    unsigned int mProcessTimeMs;
+    Task(int id, unsigned int pt) : mId(id), mProcessTimeMs(pt)
+    {
+    }
+};
+
+class TaskManager
+{
+private:
+    int mActiveTaskCount = 0;
+    bool mStopping = false;
+    std::queue<Task> mTasks;
+    std::vector<std::thread> mThreads;
+    std::condition_variable mCv;
+    std::condition_variable mCvWaitComplete;
+    std::mutex mMutex;
+
+    void Worker()
+    {
+        while (true)
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+            mCv.wait(lock, [&]()
+                     { return mStopping || !mTasks.empty()); });
+            if (mStopping && mTasks.empty())
+            {
+                break;
+            }
+
+            mActiveTaskCount++;
+        }
+    }
+
+public:
+    TaskManager()
+    {
+        mThreads.push_back(std::thread(&TaskManager::Worker, this));
+        mThreads.push_back(std::thread(&TaskManager::Worker, this));
+    }
+    ~TaskManager()
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+        mStopping = true;
+        mCv.notify_all();
+
+        lock.unlock();
+
+        for (int i = 0; i < mThreads.size(); i++)
+        {
+            if (mThreads[i].joinable())
+            {
+                mThreads[i].join();
+            }
+        }
+    }
+    bool AddTask(int id, unsigned int processTimeMs)
+    {
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+
+            mTasks.emplace(id, processTimeMs);
+        }
+
+        mCv.notify_one();
+    }
+    void WaitTaskComplete()
+    {
+        std::unique_lock<std::mutex> lock(mMutex);
+
+        mCvWaitComplete.wait(lock, [&]()
+                             { return (mActiveTaskCount == 0) && mTasks.empty(); });
+    }
+};
+
+int main()
+{
+    TaskManager tm;
+    tm.AddTask(1, 100);
+    tm.AddTask(1, 100);
+    tm.AddTask(1, 100);
+    tm.AddTask(1, 100);
+    tm.WaitTaskComplete();
+}
