@@ -1,3 +1,4 @@
+#include <cassert>
 
 #define BIT(x) (1 << (x))
 
@@ -66,115 +67,83 @@ private:
 public:
     bool IsPressed(Buttons button) const
     {
-        return static_cast<bool>(mPressed & button);
+        return (mPressed & static_cast<unsigned int>(button)) == 1;
     }
+
     bool IsRepeat(Buttons button) const
     {
-        return static_cast<bool>(mRepeat & button);
+        return (mRepeat & static_cast<unsigned int>(button)) == 1;
     }
 };
 
-class PlayingManager;
-
-class GameManager
+// 操作中のブロック
+class FallingPair
 {
 private:
-    GameStatus mGameStatus = GameStatus::Title;
-
-    InputManager mInputManager;
-
-    PlayingManager mPlayingManager;
+    int mX; // 左端を0 右端をWIDTH-1とする
+    int mY; // 一番上の段をHEIGHT-1、一番下の段を0とする
+    Direction mDirection;
+    BlockColor mColors[2];
 
 public:
-    void Execute();
+    int GetX() const
+    {
+        return mX;
+    }
+    int GetY() const
+    {
+        return mY;
+    }
+    void SetDirection(Direction next)
+    {
+        mDirection = next;
+    }
+    Direction GetDirection() const
+    {
+        return mDirection;
+    }
+    void SetColor(int index, BlockColor color)
+    {
+        assert(((index >= 0) && (index < mColors.size())) && "block index range error");
+        mColors[index] = color;
+    }
+    BlockColor GetColor(int index) const
+    {
+        return mColors[index];
+    }
 
-    //
-    void SetStatus(GameStatus next);
+    void Move(int x, int y)
+    {
+        mX = x;
+        mY = y;
+    }
 
-    void Title();
-    void Playing();
-    void GameOver();
-    void GameClear();
+    void Rotation()
+    {
+        switch (mDirection)
+        {
+        case Direction::Down:
+            mDirection = Direction::Left;
+            break;
+        case Direction::Left:
+            mDirection = Direction::Up;
+            break;
+        case Direction::Up:
+            mDirection = Direction::Right;
+            break;
+        case Direction::Right:
+            mDirection = Direction::Down;
+            break;
+        }
+    }
 };
-
-void GameManager::SetStatus(GameStatus next)
-{
-    mGameStatus = next;
-}
-
-void GameManager::Execute()
-{
-    switch (mGameStatus)
-    {
-    case GameStatus::Title:
-        Title();
-        break;
-
-    case GameStatus::Playing:
-        Playing();
-        break;
-
-    case GameStatus::GameOver:
-        GameOver();
-        break;
-
-    case GameStatus::GameClear:
-        GameClear();
-        break;
-    }
-}
-
-// タイトル
-void GameManager::Title()
-{
-    if (mInputManager.IsPressed(Buttons::Rotate))
-    {
-        SetStatus(GameStatus::Playing);
-    }
-}
-// ゲーム中
-void GameManager::Playing()
-{
-    mPlayingManager.Execute(mInputManager);
-
-    GameResult result = mPlayingManager.GetGameResult();
-    switch (result)
-    {
-    case GameResult::Playing:
-        break;
-
-    case GameResult::GameOver:
-        SetStatus(GameStatus::GameOver);
-        break;
-
-    case GameResult::GameClear:
-        SetStatus(GameStatus::GameClear);
-        break;
-    }
-}
-// ゲームオーバー
-void GameManager::GameOver()
-{
-    if (mInputManager.IsPressed(Buttons::Rotate))
-    {
-        // タイトルへ
-        SetStatus(GameStatus::Title);
-    }
-}
-// ゲームクリア
-void GameManager::GameClear()
-{
-    if (mInputManager.IsPressed(Buttons::Rotate))
-    {
-        // タイトルへ
-        SetStatus(GameStatus::Title);
-    }
-}
 
 // 盤面
 class Board
 {
 private:
+    // 左端を0 右端をWIDTH-1
+    // 一番上の段をHEGHT-1 一番下の段を0とする
     BlockColor mCells[HEIGHT][WIDTH];
 
 public:
@@ -191,38 +160,6 @@ public:
     bool CanPlace(const FallingPair &pair) const
     {
         return false;
-    }
-};
-
-// 操作中のブロック
-class FallingPair
-{
-private:
-    int mX;
-    int mY;
-    Direction mDirection;
-    BlockColor mColors[2];
-
-public:
-    int GetX() const
-    {
-        return mX;
-    }
-    int GetY() const
-    {
-        return mY;
-    }
-    Direction GetDirection() const
-    {
-        return mDirection;
-    }
-    BlockColor GetColor(int index)
-    {
-        return mColors[index];
-    }
-    void SetDirection(Direction next)
-    {
-        mDirection = next;
     }
 };
 
@@ -399,5 +336,106 @@ void PlayingManager::Falling()
     if () // 落下処理終了？
     {
         SetStatus(PlayerStatus::EraseCheck);
+    }
+}
+
+//--------------------------------------
+
+class GameManager
+{
+private:
+    GameStatus mGameStatus = GameStatus::Title;
+
+    InputManager mInputManager;
+
+    PlayingManager mPlayingManager;
+
+public:
+    void Execute();
+
+    //
+    void SetStatus(GameStatus next);
+
+    void Title();
+    void Playing();
+    void GameOver();
+    void GameClear();
+};
+
+void GameManager::SetStatus(GameStatus next)
+{
+    if (next == GameStatus::Playing)
+    {
+        mPlayingManager.Start();
+    }
+    mGameStatus = next;
+}
+
+void GameManager::Execute()
+{
+    switch (mGameStatus)
+    {
+    case GameStatus::Title:
+        Title();
+        break;
+
+    case GameStatus::Playing:
+        Playing();
+        break;
+
+    case GameStatus::GameOver:
+        GameOver();
+        break;
+
+    case GameStatus::GameClear:
+        GameClear();
+        break;
+    }
+}
+
+// タイトル
+void GameManager::Title()
+{
+    if (mInputManager.IsPressed(Buttons::Rotate))
+    {
+        SetStatus(GameStatus::Playing);
+    }
+}
+// ゲーム中
+void GameManager::Playing()
+{
+    mPlayingManager.Execute(mInputManager);
+
+    GameResult result = mPlayingManager.GetGameResult();
+    switch (result)
+    {
+    case GameResult::Playing:
+        break;
+
+    case GameResult::GameOver:
+        SetStatus(GameStatus::GameOver);
+        break;
+
+    case GameResult::GameClear:
+        SetStatus(GameStatus::GameClear);
+        break;
+    }
+}
+// ゲームオーバー
+void GameManager::GameOver()
+{
+    if (mInputManager.IsPressed(Buttons::Rotate))
+    {
+        // タイトルへ
+        SetStatus(GameStatus::Title);
+    }
+}
+// ゲームクリア
+void GameManager::GameClear()
+{
+    if (mInputManager.IsPressed(Buttons::Rotate))
+    {
+        // タイトルへ
+        SetStatus(GameStatus::Title);
     }
 }
