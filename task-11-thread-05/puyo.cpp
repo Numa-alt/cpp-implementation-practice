@@ -67,12 +67,12 @@ private:
 public:
     bool IsPressed(Buttons button) const
     {
-        return (mPressed & static_cast<unsigned int>(button)) == 1;
+        return (mPressed & static_cast<unsigned int>(button)) != 0;
     }
 
     bool IsRepeat(Buttons button) const
     {
-        return (mRepeat & static_cast<unsigned int>(button)) == 1;
+        return (mRepeat & static_cast<unsigned int>(button)) != 0;
     }
 };
 
@@ -83,9 +83,16 @@ private:
     int mX; // 左端を0 右端をWIDTH-1とする
     int mY; // 一番上の段をHEIGHT-1、一番下の段を0とする
     Direction mDirection;
-    BlockColor mColors[2];
+    std::array<BlockColor, 2> mColors;
 
 public:
+    void Reset()
+    {
+        mX = 0;
+        mY = HEIGHT - 1;
+        mDirection = Direction::Left;
+        mColos
+    }
     int GetX() const
     {
         return mX;
@@ -157,6 +164,16 @@ public:
             }
         }
     }
+    void Reset()
+    {
+        for (auto &row : mCells)
+        {
+            for (auto &c : row)
+            {
+                c = BlockColor::Empty;
+            }
+        }
+    }
     bool CanPlace(const FallingPair &pair) const
     {
         return false;
@@ -167,6 +184,7 @@ class PlayingManager
 {
 private:
     FallingPair mFallingPair;
+    FallingPair mNextFallingPair;
     Board mBoard;
     PlayerStatus mStatus = PlayerStatus::Entry;
     int mChainCount = 0;
@@ -177,6 +195,10 @@ public:
     {
         mChainCount = 0;
         mGameResult = GameResult::Playing;
+        mStatus = PlayerStatus::Entry;
+        mBoard.Reset();
+        mFallingPair.Reset();
+        mNextFallingPair.Reset();
     }
 
     // ステータス変更時に行う処理
