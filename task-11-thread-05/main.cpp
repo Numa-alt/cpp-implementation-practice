@@ -7,6 +7,10 @@
 #include <chrono>
 
 #if 0
+<<<<<<< HEAD
+=======
+
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
 struct Task
 {
     Task(int taskId, unsigned long processTimeMs) : mTaskId(taskId), mProcessTimeMs(processTimeMs)
@@ -235,21 +239,127 @@ private:
         }
     }
 
+<<<<<<< HEAD
 public:
     TaskManager()
     {
         mThreadA = std::thread(&TaskManager::Worker, this);
         mThreadB = std::thread(&TaskManager::Worker, this);
+=======
+        std::thread を宣言。
+        コンストラクタに、
+            実行するメンバ関数(ThreadTaskQueue::WorkerLoop)
+            どのインスタンスのWorkerLoopを呼ぶのか指定するためthis
+        を指定
+*/
+
+#endif
+
+struct Task
+{
+    int mId;
+    unsigned long mProcessTimeMs;
+    Task(int id, unsigned long processTimeMs) : mId(id), mProcessTimeMs(processTimeMs)
+    {
+    }
+};
+
+class TaskManager
+{
+private:
+    int mActiveTaskCount = 0;
+    bool mStopping = false;
+    std::thread mThreadA;
+    std::thread mThreadB;
+    std::mutex mMutex;
+    std::mutex mCoutMutex;
+    std::condition_variable mCv;
+    std::condition_variable mCvWaitComplete;
+    std::condition_variable mCoutCv;
+    std::queue<Task> mTasks;
+
+    std::vector<std::thread> mThreads;
+
+    void Worker()
+    {
+        while (true)
+        {
+            std::unique_lock<std::mutex> lock(mMutex);
+
+            mCv.wait(lock, [&]()
+                     { return mStopping || !mTasks.empty(); });
+
+            if (mStopping && mTasks.empty())
+            {
+                break;
+            }
+
+            Task task = mTasks.front();
+            mTasks.pop();
+
+            mActiveTaskCount++;
+
+            lock.unlock();
+
+            {
+                std::unique_lock<std::mutex> lock(mCoutMutex);
+                std::cout << "start task " << task.mId << "\n";
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(task.mProcessTimeMs));
+            {
+                std::unique_lock<std::mutex> lock(mCoutMutex);
+                std::cout << "end task " << task.mId << "\n";
+            }
+
+            lock.lock();
+
+            mActiveTaskCount--;
+
+            bool complete = (mActiveTaskCount == 0) && mTasks.empty();
+
+            lock.unlock();
+
+            {
+                std::unique_lock<std::mutex> lock(mCoutMutex);
+                std::cout << "active task count " << mActiveTaskCount << " complete " << complete << "\n";
+            }
+
+            if (complete)
+            {
+
+                {
+                    std::unique_lock<std::mutex> lock(mCoutMutex);
+                    std::cout << "wait complete notify all" << "\n";
+                }
+                mCvWaitComplete.notify_all();
+            }
+        }
+    }
+
+public:
+    TaskManager()
+    {
+        mThreads.emplace_back(std::thread(&TaskManager::Worker, this));
+        mThreads.emplace_back(std::thread(&TaskManager::Worker, this));
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
     }
     ~TaskManager()
     {
         std::unique_lock<std::mutex> lock(mMutex);
 
+<<<<<<< HEAD
         mStopping = true;
+=======
+        std::cout << "TaskManager destrocutor\n";
+
+        mStopping = true;
+
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
         mCv.notify_all();
 
         lock.unlock();
 
+<<<<<<< HEAD
         if (mThreadA.joinable())
         {
             mThreadA.join();
@@ -262,6 +372,18 @@ public:
         std::cout << "task manager destructor  \n";
     }
     bool AddTask(int taskId, unsigned long processTimeMs)
+=======
+        for (int i = 0; i < mThreads.size(); i++)
+        {
+            std::cout << "thread " << i << " joinable " << mThreads[i].joinable() << std::endl;
+            if (mThreads[i].joinable())
+            {
+                mThreads[i].join();
+            }
+        }
+    }
+    bool AddTask(int id, unsigned long processTimeMs)
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
     {
         {
             std::unique_lock<std::mutex> lock(mMutex);
@@ -271,12 +393,22 @@ public:
                 return false;
             }
 
+<<<<<<< HEAD
             mTasks.emplace(taskId, processTimeMs);
         }
+=======
+            mTasks.emplace(id, processTimeMs);
+        }
+
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
         mCv.notify_one();
 
         return true;
     }
+<<<<<<< HEAD
+=======
+
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
     void WaitComplete()
     {
         std::unique_lock<std::mutex> lock(mMutex);
@@ -288,6 +420,7 @@ public:
 
 int main()
 {
+<<<<<<< HEAD
     std::cout << "CHECK START\n";
 
     TaskManager tm;
@@ -389,3 +522,19 @@ int main()
     tm.AddTask(1, 100);
     tm.WaitTaskComplete();
 }
+=======
+    std::cout << "start task11\n";
+    TaskManager tm;
+
+    tm.AddTask(1, 200);
+    tm.AddTask(2, 150);
+    tm.AddTask(3, 400);
+    tm.AddTask(4, 200);
+
+    std::cout << "wait complete\n";
+    tm.WaitComplete();
+
+    std::cout << "end task11\n";
+    return 0;
+}
+>>>>>>> be615898bc3ce9fd3b80a69964e2b279970807d5
