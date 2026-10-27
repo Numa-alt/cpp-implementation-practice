@@ -1,4 +1,5 @@
 #include <cassert>
+#include <array>
 
 #define BIT(x) (1 << (x))
 
@@ -91,7 +92,10 @@ public:
         mX = 0;
         mY = HEIGHT - 1;
         mDirection = Direction::Left;
-        mColos
+        for (auto& c : mColors)
+        {
+            c = BlockColor::Empty;
+        }
     }
     int GetX() const
     {
@@ -111,7 +115,7 @@ public:
     }
     void SetColor(int index, BlockColor color)
     {
-        assert(((index >= 0) && (index < mColors.size())) && "block index range error");
+        assert((index >= 0) && (index < 2));
         mColors[index] = color;
     }
     BlockColor GetColor(int index) const
@@ -119,13 +123,19 @@ public:
         return mColors[index];
     }
 
-    void Move(int x, int y)
+    void SetPosition(int x, int y)
     {
         mX = x;
         mY = y;
     }
 
-    void Rotation()
+    void Move(int x, int y)
+    {
+        mX += x;
+        mY += y;
+    }
+
+    void Rotate()
     {
         switch (mDirection)
         {
@@ -156,35 +166,74 @@ private:
 public:
     Board()
     {
-        for (auto &row : mCells)
-        {
-            for (auto &c : row)
-            {
-                c = BlockColor::Empty;
-            }
-        }
+        Reset();
     }
+
     void Reset()
     {
-        for (auto &row : mCells)
+        for (auto& row : mCells)
         {
-            for (auto &c : row)
+            for (auto& c : row)
             {
                 c = BlockColor::Empty;
             }
         }
     }
-    bool CanPlace(const FallingPair &pair) const
+
+    bool CanPlace(const FallingPair& pair) const
     {
-        return false;
+        // 軸のブロック
+        int x = pair.GetX();
+        int y = pair.GetY();
+
+        // 軸のブロックが範囲外？
+        if ((x < 0) || (x >= WIDTH) || (y < 0) || (y >= HEIGHT))
+        {
+            return false;
+        }
+        // 軸のブロックの位置が空いてない？
+        if (mCells[y][x] != BlockColor::Empty)
+        {
+            return false;
+        }
+
+        // 相方のブロックの位置
+        switch (pair.GetDirection())
+        {
+        case Direction::Down:
+            y -= 1;
+            break;
+        case Direction::Left:
+            x -= 1;
+            break;
+        case Direction::Up:
+            y += 1;
+            break;
+        case Direction::Right:
+            x += 1;
+            break;
+        }
+        // 相方のブロックが範囲外？
+        if ((x < 0) || (x >= WIDTH) || (y < 0) || (y >= HEIGHT))
+        {
+            return false;
+        }
+
+        // 相方のブロックの位置が空いない？
+        if (mCells[y][x] != BlockColor::Empty)
+        {
+            return false;
+        }
+
+        return true;
     }
 };
 
 class PlayingManager
 {
 private:
-    FallingPair mFallingPair;
-    FallingPair mNextFallingPair;
+    FallingPair mFallingPair; // 操作中のブロック
+    FallingPair mNextPair;    // 次に出現するブロック
     Board mBoard;
     PlayerStatus mStatus = PlayerStatus::Entry;
     int mChainCount = 0;
@@ -195,19 +244,23 @@ public:
     {
         mChainCount = 0;
         mGameResult = GameResult::Playing;
-        mStatus = PlayerStatus::Entry;
         mBoard.Reset();
         mFallingPair.Reset();
-        mNextFallingPair.Reset();
+        mNextPair.Reset();
+
+        GenerateNextPair();
+        SetStatus(PlayerStatus::Entry);
     }
+
+    void GenerateNextPair();
 
     // ステータス変更時に行う処理
     void SetStatus(PlayerStatus next);
 
-    void Execute(const InputManager &input);
+    void Execute(const InputManager& input);
 
     void Entry();
-    void Control(const InputManager &input);
+    void Control(const InputManager& input);
     void Falling();
     void EraseCheck();
     void Erase();
@@ -215,6 +268,15 @@ public:
     // GameManager側から結果を取得するため
     GameResult GetGameResult() const { return mGameResult; }
 };
+
+void PlayingManager::GenerateNextPair()
+{
+    // 出現位置
+    mNextPair.SetPosition(2, HEIGHT - 1);
+    // ランダムに色を設定する
+    mNextPair.SetColor(0, BlockColor::Blue);
+    mNextPair.SetColor(1, BlockColor::Red);
+}
 
 // ステータス変更時に行う処理
 void PlayingManager::SetStatus(PlayerStatus next)
@@ -224,8 +286,22 @@ void PlayingManager::SetStatus(PlayerStatus next)
     switch (next)
     {
     case PlayerStatus::Entry:
-        mChainCount = 0;
-        break;
+        {
+            mFallingPair = mNextPair;
+
+            if (!mBoard.CanPlace(mFallingPair)) // 追加できる場所がない?
+            {
+                mGameResult = GameResult::GameOver;
+                SetStatus(PlayerStatus::Result);
+                return;
+            }
+
+            // 次のブロックの色をランダムで設定する
+            GenerateNextPair();
+
+            mChainCount = 0;
+            break;
+        }
 
     case PlayerStatus::Erase:
         mChainCount++;
@@ -233,36 +309,36 @@ void PlayingManager::SetStatus(PlayerStatus next)
     }
 }
 
-void PlayingManager::Execute(const InputManager &input)
+void PlayingManager::Execute(const InputManager& input)
 {
     switch (mStatus)
     {
-    // 新規ブロック追加
+        // 新規ブロック追加
     case PlayerStatus::Entry:
         Entry();
         break;
 
-    // 操作中
+        // 操作中
     case PlayerStatus::Control:
         Control(input);
         break;
 
-    // 落下中
+        // 落下中
     case PlayerStatus::Falling:
         Falling();
         break;
 
-    // 消えるかチェック
+        // 消えるかチェック
     case PlayerStatus::EraseCheck:
         EraseCheck();
         break;
 
-    // 消去
+        // 消去
     case PlayerStatus::Erase:
         Erase();
         break;
 
-    // 結果表示中
+        // 結果表示中
     case PlayerStatus::Result:
         break;
     }
@@ -270,43 +346,65 @@ void PlayingManager::Execute(const InputManager &input)
 // 新しいぷよ出現
 void PlayingManager::Entry()
 {
-    if () // 追加できる場所がない
-    {
-        mGameResult = GameResult::GameOver;
-        SetStatus(PlayerStatus::Result);
-        return;
-    }
 
     if () // ぷよ追加演出完了？
     {
         SetStatus(PlayerStatus::Control);
     }
 }
-
-void PlayingManager::Control(const InputManager &input)
+//落下中のブロックの操作
+void PlayingManager::Control(const InputManager& input)
 {
     if (input.IsRepeat(Buttons::Left))
     {
-        if () // 左へ移動可能？
+        FallingPair pair = mFallingPair;
+        pair.Move(-1, 0);
+        if (mBoard.CanPlace(pair)) // 左へ移動可能？
         {
-            // 左移動
+            // 左へ移動
+            mFallingPair = pair;
         }
     }
     else if (input.IsRepeat(Buttons::Right))
     {
-        if () // 右へ移動可能？
+        FallingPair pair = mFallingPair;
+        pair.Move(1, 0);
+        if (mBoard.CanPlace(pair)) // 右へ移動可能？
         {
             // 右へ移動
+            mFallingPair = pair;
         }
     }
-    if (input.IsRepeat(Buttons::Down))
+    else if (input.IsRepeat(Buttons::Down))
     {
-        // 1段下処理
+        FallingPair pair = mFallingPair;
+        pair.Move(0, -1);
+        if (mBoard.CanPlace(pair))
+        {
+            // 1段下へ移動
+            mFallingPair = pair;
+        }
     }
 
     if (input.IsPressed(Buttons::Rotate))
     {
         // 回転処理
+        FallingPair pair = mFallingPair;
+
+        //90度
+        pair.Rotate();
+        if (mBoard.CanPlace(pair))
+        {
+            mFallingPair = pair;
+        }
+        else {
+            //180度
+            pair.Rotate();
+            if (mBoard.CanPlace(pair))
+            {
+                mFallingPair = pair;
+            }
+        }
     }
 
     //
