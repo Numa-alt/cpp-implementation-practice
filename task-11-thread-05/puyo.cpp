@@ -7,7 +7,7 @@
 static constexpr int HEIGHT = 12;
 static constexpr int WIDTH = 6;
 
-enum class GameStatus
+enum class GameState
 {
     Title,     // タイトル画面
     Playing,   // ゲーム中
@@ -15,13 +15,13 @@ enum class GameStatus
     GameClear, // ゲームクリア
 };
 
-enum class PlayerStatus
+enum class PlayState
 {
-    Entry,      // 新しいぷよ出現
-    Control,    // ぷよを操作中
+    Spawn,      // 新しいブロック出現
+    Control,    // ブロックを操作中
     EraseCheck, // 消えるかチェック
     Erase,      // 消去中
-    Falling,    // 落下中
+    DropBlocks, // 落下中
     Result,     // 結果表示中
 };
 
@@ -50,7 +50,7 @@ enum class Direction
     Left,
 };
 
-enum class Buttons
+enum class Button
 {
     Rotate = BIT(0),
     Left = BIT(1),
@@ -66,12 +66,12 @@ private:
     unsigned int mRepeat = 0;
 
 public:
-    bool IsPressed(Buttons button) const
+    bool IsPressed(Button button) const
     {
         return (mPressed & static_cast<unsigned int>(button)) != 0;
     }
 
-    bool IsRepeat(Buttons button) const
+    bool IsRepeat(Button button) const
     {
         return (mRepeat & static_cast<unsigned int>(button)) != 0;
     }
@@ -129,10 +129,10 @@ public:
         mY = y;
     }
 
-    void Move(int x, int y)
+    void Move(int dx, int dy)
     {
-        mX += x;
-        mY += y;
+        mX += dx;
+        mY += dy;
     }
 
     void Rotate()
@@ -155,6 +155,30 @@ public:
     }
 };
 
+struct EraseFlags
+{
+    unsigned int mFlags[WIDTH];
+    void Init()
+    {
+        for (auto& f : mFlags)
+        {
+            f = 0;
+        }
+    }
+    void On(int x, int y)
+    {
+        mFlags[x] |= BIT(y);
+    }
+    void Off(int x, int y)
+    {
+        mFlags[x] &= ~BIT(y);
+    }
+    bool IsOn(int x, int y) const
+    {
+        return static_cast<bool>(mFlags[x] & BIT(y));
+    }
+};
+
 // 盤面
 class Board
 {
@@ -162,6 +186,9 @@ private:
     // 左端を0 右端をWIDTH-1
     // 一番上の段をHEGHT-1 一番下の段を0とする
     BlockColor mCells[HEIGHT][WIDTH];
+
+    //消えるブロックにフラグを立てる
+    EraseFlags mEraseFlags;
 
 public:
     Board()
@@ -178,56 +205,240 @@ public:
                 c = BlockColor::Empty;
             }
         }
+        mEraseFlags.Init();
     }
 
-    bool CanPlace(const FallingPair& pair) const
-    {
-        // 軸のブロック
-        int x = pair.GetX();
-        int y = pair.GetY();
+    //ペアを配置できる？
+    bool CanPlace(const FallingPair& pair) const;
 
-        // 軸のブロックが範囲外？
-        if ((x < 0) || (x >= WIDTH) || (y < 0) || (y >= HEIGHT))
-        {
-            return false;
-        }
-        // 軸のブロックの位置が空いてない？
-        if (mCells[y][x] != BlockColor::Empty)
-        {
-            return false;
-        }
+    //ペアを配置
+    void PutPair(const FallingPair& pair);
 
-        // 相方のブロックの位置
-        switch (pair.GetDirection())
-        {
-        case Direction::Down:
-            y -= 1;
-            break;
-        case Direction::Left:
-            x -= 1;
-            break;
-        case Direction::Up:
-            y += 1;
-            break;
-        case Direction::Right:
-            x += 1;
-            break;
-        }
-        // 相方のブロックが範囲外？
-        if ((x < 0) || (x >= WIDTH) || (y < 0) || (y >= HEIGHT))
-        {
-            return false;
-        }
+    //浮いているブロックがあるか？
+    bool HasFloatingBlocks() const;
 
-        // 相方のブロックの位置が空いない？
-        if (mCells[y][x] != BlockColor::Empty)
-        {
-            return false;
-        }
+    //浮いているブロックを1段下げる
+    void DropFloatingBlocks();
 
-        return true;
-    }
+    //消えるブロックにフラグを立てる
+    bool FindEraseBlocks();
+    void SearchConnectedBlocks(int x, int y, BlockColor color, EraseFlags& checkedFlags, EraseFlags& connectedFlags, int& count);
+
+    //mEraseFlagsに従ってブロックを消す
+    void EraseBlocks();
 };
+
+//ペアを配置
+void Board::PutPair(const FallingPair& pair)
+{
+    int x = pair.GetX();
+    int y = pair.GetY();
+    //軸を配置
+    mCells[y][x] = pair.GetColor(0);
+
+    //相方を配置
+    switch (pair.GetDirection())
+    {
+    case Direction::Up:    y++;  break;
+    case Direction::Down:  y--;  break;
+    case Direction::Left:  x--;  break;
+    case Direction::Right: x++;  break;
+    }
+    mCells[y][x] = pair.GetColor(1);
+}
+//配置できる？
+bool Board::CanPlace(const FallingPair& pair) const
+{
+    // 軸のブロック
+    int x = pair.GetX();
+    int y = pair.GetY();
+
+    // 軸のブロックが範囲外？
+    if ((x < 0) || (x >= WIDTH) || (y < 0) || (y >= HEIGHT))
+    {
+        return false;
+    }
+    // 軸のブロックの位置が空いてない？
+    if (mCells[y][x] != BlockColor::Empty)
+    {
+        return false;
+    }
+
+    // 相方のブロックの位置
+    switch (pair.GetDirection())
+    {
+    case Direction::Down:
+        y -= 1;
+        break;
+    case Direction::Left:
+        x -= 1;
+        break;
+    case Direction::Up:
+        y += 1;
+        break;
+    case Direction::Right:
+        x += 1;
+        break;
+    }
+    // 相方のブロックが範囲外？
+    if ((x < 0) || (x >= WIDTH) || (y < 0) || (y >= HEIGHT))
+    {
+        return false;
+    }
+
+    // 相方のブロックの位置が空いない？
+    if (mCells[y][x] != BlockColor::Empty)
+    {
+        return false;
+    }
+
+    return true;
+}
+//浮いているブロックがあるか？
+bool Board::HasFloatingBlocks() const
+{
+    for (int x = 0; x < WIDTH; x++)
+    {
+        for (int y = 0; y < HEIGHT - 1; y++)
+        {
+            if (mCells[y][x] == BlockColor::Empty) {
+                for (int yy = y + 1; yy < HEIGHT; yy++)
+                {
+                    if (mCells[yy][x] != BlockColor::Empty)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+//浮いているブロックを1段下げる
+void Board::DropFloatingBlocks()
+{
+    for (int x = 0; x < WIDTH; x++)
+    {
+        for (int y = 1; y < HEIGHT; y++)
+        {
+            if (mCells[y - 1][x] == BlockColor::Empty)//一つ下が空いてる?
+            {
+                if (mCells[y][x] != BlockColor::Empty)//ブロックがある？
+                {
+                    //一つ下に移動
+                    mCells[y - 1][x] = mCells[y][x];
+                    mCells[y][x] = BlockColor::Empty;
+                }
+            }
+        }
+    }
+}
+//消えるブロックにフラグを立てる
+//再帰を使って４つ以上つながった同色のブロックの位置のフラグを立てる
+bool Board::FindEraseBlocks()
+{
+    bool hasErase = false;
+
+    mEraseFlags.Init();
+
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            if (mCells[y][x] != BlockColor::Empty) {
+
+                EraseFlags checkedFlags;
+                checkedFlags.Init();
+                checkedFlags.On(x, y);
+
+                EraseFlags connectedFlags;
+                connectedFlags.Init();
+                connectedFlags.On(x, y);
+
+                int count = 1;//つながった数
+
+                SearchConnectedBlocks(x, y, mCells[y][x], checkedFlags, connectedFlags, count);
+
+                if (count >= 4) {
+                    //消えるものにフラグを立てる
+                    for (int yy = 0; yy < HEIGHT; yy++) {
+                        for (int xx = 0; xx < WIDTH; xx++) {
+                            if (connectedFlags.IsOn(xx, yy)) {
+                                mEraseFlags.On(xx, yy);
+                            }
+                        }
+                    }
+                    hasErase = true;
+                }
+            }
+        }
+    }
+
+    return hasErase;
+}
+//指定位置から
+// 同じ色でつながっているブロックを
+// 再帰でたどって
+// 個数を数え
+// その位置を e に記録する
+void Board::SearchConnectedBlocks(int x, int y, BlockColor color, EraseFlags& checkedFlags, EraseFlags& connectedFlags, int& count)
+{
+    //上
+    if ((y + 1) < HEIGHT) {
+        if (!checkedFlags.IsOn(x, y + 1)) {//未チェック？
+            checkedFlags.On(x, y + 1);
+            if (mCells[y + 1][x] == color) {
+                ++count;
+                connectedFlags.On(x, y + 1);
+                SearchConnectedBlocks(x, y + 1, color, checkedFlags, connectedFlags, count);
+            }
+        }
+    }
+    //下
+    if ((y - 1) >= 0) {
+        if (!checkedFlags.IsOn(x, y - 1)) {//未チェック？
+            checkedFlags.On(x, y - 1);
+            if (mCells[y - 1][x] == color) {
+                ++count;
+                connectedFlags.On(x, y - 1);
+                SearchConnectedBlocks(x, y - 1, color, checkedFlags, connectedFlags, count);
+            }
+        }
+    }
+    //左
+    if ((x - 1) >= 0) {
+        if (!checkedFlags.IsOn(x - 1, y)) {//未チェック？
+            checkedFlags.On(x - 1, y);
+            if (mCells[y][x - 1] == color) {
+                ++count;
+                connectedFlags.On(x - 1, y);
+                SearchConnectedBlocks(x - 1, y, color, checkedFlags, connectedFlags, count);
+            }
+        }
+    }
+    //右
+    if ((x + 1) < WIDTH) {
+        if (!checkedFlags.IsOn(x + 1, y)) {//未チェック？
+            checkedFlags.On(x + 1, y);
+            if (mCells[y][x + 1] == color) {
+                ++count;
+                connectedFlags.On(x + 1, y);
+                SearchConnectedBlocks(x + 1, y, color, checkedFlags, connectedFlags, count);
+            }
+        }
+    }
+}
+
+//mEraseFlagsに従ってブロックを消す
+void Board::EraseBlocks()
+{
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            if (mEraseFlags.IsOn(x, y)) {
+                mCells[y][x] = BlockColor::Empty;
+            }
+        }
+    }
+}
+
 
 class PlayingManager
 {
@@ -235,9 +446,29 @@ private:
     FallingPair mFallingPair; // 操作中のブロック
     FallingPair mNextPair;    // 次に出現するブロック
     Board mBoard;
-    PlayerStatus mStatus = PlayerStatus::Entry;
+    PlayState mState = PlayState::Spawn;
     int mChainCount = 0;
     GameResult mGameResult = GameResult::Playing;
+
+    //この時間経過すると操作中のブロックが１マス下に落ちる(ミリ秒)
+    unsigned long mAutoFallIntervalMs = 0;
+
+    //現在の時間を保持し、mAutoFallIntervalMs分時間が経過したらリセット(ミリ秒)
+    unsigned long mLastAutoFallTimeMs = 0;
+
+    //落下開始時の時間
+    unsigned long mDropStartTimeMs = 0;
+
+    unsigned long mSpawnTimeMs = 0;
+
+    //
+    unsigned long mEraseCheckTimeMs = 0;
+
+    //
+    unsigned long mEraseStartTimeMs = 0;
+
+    //
+    unsigned long mSystemTimeMs = 0;
 
 public:
     void Start()
@@ -248,26 +479,62 @@ public:
         mFallingPair.Reset();
         mNextPair.Reset();
 
+        mAutoFallIntervalMs = 2000;//開始時は2000ミリ秒ごとに１マス落下。ブロックを消していくと徐々に少なくする
+
+        mDropStartTimeMs = 0;
+
+        mEraseCheckTimeMs = 0;
+
+        mEraseStartTimeMs = 0;
+
+        mSpawnTimeMs = 0;
+
+        mSystemTimeMs = 0;
+
         GenerateNextPair();
-        SetStatus(PlayerStatus::Entry);
+
+        SetState(PlayState::Spawn);
     }
 
     void GenerateNextPair();
 
     // ステータス変更時に行う処理
-    void SetStatus(PlayerStatus next);
+    void SetState(PlayState next);
 
-    void Execute(const InputManager& input);
+    void Execute(const InputManager& input, unsigned long systemTimerMs);
 
-    void Entry();
+    void Spawn();//新しいブロック出現
     void Control(const InputManager& input);
-    void Falling();
+    void DropBlocks();
     void EraseCheck();
     void Erase();
 
     // GameManager側から結果を取得するため
     GameResult GetGameResult() const { return mGameResult; }
+
+    //落下時間計測のタイマーをリセット
+    void ResetAutoFallTimer();
+
+    //前回の落下から一定時間経過したか？
+    bool IsAutoFallDue() const;
+
 };
+
+//落下時間計測のタイマーをリセット
+void PlayingManager::ResetAutoFallTimer()
+{
+    //現在の時刻でリセットする
+    mLastAutoFallTimeMs = mSystemTimeMs;
+}
+//前回の落下から一定時間経過したか？
+bool PlayingManager::IsAutoFallDue() const
+{
+    if ((mSystemTimeMs - mLastAutoFallTimeMs) >= mAutoFallIntervalMs)
+    {
+        return true;
+    }
+    return false;
+}
 
 void PlayingManager::GenerateNextPair()
 {
@@ -279,83 +546,109 @@ void PlayingManager::GenerateNextPair()
 }
 
 // ステータス変更時に行う処理
-void PlayingManager::SetStatus(PlayerStatus next)
+void PlayingManager::SetState(PlayState next)
 {
-    mStatus = next;
+    mState = next;
 
     switch (next)
     {
-    case PlayerStatus::Entry:
+    case PlayState::Spawn:
         {
             mFallingPair = mNextPair;
 
             if (!mBoard.CanPlace(mFallingPair)) // 追加できる場所がない?
             {
                 mGameResult = GameResult::GameOver;
-                SetStatus(PlayerStatus::Result);
+                SetState(PlayState::Result);
                 return;
             }
 
             // 次のブロックの色をランダムで設定する
             GenerateNextPair();
 
+            //連鎖数リセット
             mChainCount = 0;
+
+            mSpawnTimeMs = mSystemTimeMs;
             break;
         }
 
-    case PlayerStatus::Erase:
-        mChainCount++;
-        break;
+    case PlayState::Control:
+        {
+            //落下タイマーをリセット
+            ResetAutoFallTimer();
+            break;
+        }
+
+    case PlayState::DropBlocks:
+        {
+            mDropStartTimeMs = mSystemTimeMs;
+            break;
+        }
+
+    case PlayState::EraseCheck:
+        {
+            mEraseCheckTimeMs = mSystemTimeMs;
+            break;
+        }
+
+    case PlayState::Erase:
+        {
+            mEraseStartTimeMs = mSystemTimeMs;
+            //連鎖数増加
+            mChainCount++;
+            break;
+        }
     }
 }
 
-void PlayingManager::Execute(const InputManager& input)
+void PlayingManager::Execute(const InputManager& input, unsigned long systemTimeMs)
 {
-    switch (mStatus)
+    mSystemTimeMs = systemTimeMs;
+    switch (mState)
     {
         // 新規ブロック追加
-    case PlayerStatus::Entry:
-        Entry();
+    case PlayState::Spawn:
+        Spawn();
         break;
 
         // 操作中
-    case PlayerStatus::Control:
+    case PlayState::Control:
         Control(input);
         break;
 
         // 落下中
-    case PlayerStatus::Falling:
-        Falling();
+    case PlayState::DropBlocks:
+        DropBlocks();
         break;
 
         // 消えるかチェック
-    case PlayerStatus::EraseCheck:
+    case PlayState::EraseCheck:
         EraseCheck();
         break;
 
         // 消去
-    case PlayerStatus::Erase:
+    case PlayState::Erase:
         Erase();
         break;
 
         // 結果表示中
-    case PlayerStatus::Result:
+    case PlayState::Result:
         break;
     }
 }
-// 新しいぷよ出現
-void PlayingManager::Entry()
+// 新しいブロック出現
+void PlayingManager::Spawn()
 {
-
-    if () // ぷよ追加演出完了？
+    if ((mSystemTimeMs - mSpawnTimeMs) >= 500) // ブロック追加演出完了？
     {
-        SetStatus(PlayerStatus::Control);
+        SetState(PlayState::Control);
     }
 }
-//落下中のブロックの操作
+// 落下中のブロックの操作
 void PlayingManager::Control(const InputManager& input)
 {
-    if (input.IsRepeat(Buttons::Left))
+    if (input.IsRepeat(Button::Left))
     {
         FallingPair pair = mFallingPair;
         pair.Move(-1, 0);
@@ -365,7 +658,7 @@ void PlayingManager::Control(const InputManager& input)
             mFallingPair = pair;
         }
     }
-    else if (input.IsRepeat(Buttons::Right))
+    else if (input.IsRepeat(Button::Right))
     {
         FallingPair pair = mFallingPair;
         pair.Move(1, 0);
@@ -375,7 +668,7 @@ void PlayingManager::Control(const InputManager& input)
             mFallingPair = pair;
         }
     }
-    else if (input.IsRepeat(Buttons::Down))
+    else if (input.IsRepeat(Button::Down))
     {
         FallingPair pair = mFallingPair;
         pair.Move(0, -1);
@@ -386,19 +679,20 @@ void PlayingManager::Control(const InputManager& input)
         }
     }
 
-    if (input.IsPressed(Buttons::Rotate))
+    if (input.IsPressed(Button::Rotate))
     {
         // 回転処理
         FallingPair pair = mFallingPair;
 
-        //90度
+        // 90度
         pair.Rotate();
         if (mBoard.CanPlace(pair))
         {
             mFallingPair = pair;
         }
-        else {
-            //180度
+        else
+        {
+            // 180度
             pair.Rotate();
             if (mBoard.CanPlace(pair))
             {
@@ -408,54 +702,77 @@ void PlayingManager::Control(const InputManager& input)
     }
 
     //
-    if () // 前回の落下から一定時間経過？
+    if (IsAutoFallDue()) // 前回の落下から一定時間経過？
     {
         // 1段落下
-    }
+        FallingPair pair = mFallingPair;
+        pair.Move(0, -1);
+        if (mBoard.CanPlace(pair))
+        {
+            mFallingPair = pair;
+            //落下タイマーをリセット
+            ResetAutoFallTimer();
+        }
+        else {
+            // 着地して、一定時間経過している
+            // 着地処理
+            SetState(PlayState::DropBlocks);
 
-    if () // 着地して、一定時間経過している？
-    {
-        // 着地処理
-        SetStatus(PlayerStatus::Falling);
+            mBoard.PutPair(mFallingPair);
+        }
     }
 }
 
 // 消去チェック
 void PlayingManager::EraseCheck()
 {
-    if () // 消える？
-    {
-        SetStatus(PlayerStatus::Erase);
-    }
-    else
-    {
-        SetStatus(PlayerStatus::Entry);
-    }
-}
-
-// ぷよを消去
-void PlayingManager::Erase()
-{
-
-    if () // 消去処理終了？
-    {
-        if () // 落下するぷよがある？
+    if ((mSystemTimeMs - mEraseCheckTimeMs) >= 500) {
+        if (mBoard.FindEraseBlocks()) // 消える？
         {
-            SetStatus(PlayerStatus::Falling); //
+            SetState(PlayState::Erase);
         }
         else
         {
-            SetStatus(PlayerStatus::Entry);
+            SetState(PlayState::Spawn);
         }
     }
 }
 
-// ぷよ落下処理
-void PlayingManager::Falling()
+// ブロックを消去
+void PlayingManager::Erase()
 {
-    if () // 落下処理終了？
+    if ((mSystemTimeMs - mEraseStartTimeMs) >= 500) // 消去処理終了？
     {
-        SetStatus(PlayerStatus::EraseCheck);
+        //ブロックを消す
+        mBoard.EraseBlocks();
+
+        if (mBoard.HasFloatingBlocks()) // 浮いているブロックがある？
+        {
+            SetState(PlayState::DropBlocks); //
+        }
+        else
+        {
+            SetState(PlayState::Spawn);
+        }
+    }
+}
+
+// ブロック落下処理
+void PlayingManager::DropBlocks()
+{
+    if ((mSystemTimeMs - mDropStartTimeMs) >= 500) // 落下処理終了？
+    {
+        mBoard.DropFloatingBlocks();
+
+        if (!mBoard.HasFloatingBlocks())//浮いているブロックがある？
+        {
+            //浮いているブロックがないので消えるブロックがあるかチェック
+            SetState(PlayState::EraseCheck);
+        }
+        else {
+            //再度落下処理
+            SetState(PlayState::DropBlocks);
+        }
     }
 }
 
@@ -464,50 +781,55 @@ void PlayingManager::Falling()
 class GameManager
 {
 private:
-    GameStatus mGameStatus = GameStatus::Title;
+    GameState mGameState = GameState::Title;
 
     InputManager mInputManager;
 
     PlayingManager mPlayingManager;
 
+    unsigned long mSystemTimeMs = 0;
+
 public:
     void Execute();
 
     //
-    void SetStatus(GameStatus next);
+    void SetState(GameState next);
 
     void Title();
-    void Playing();
+    void Playing(unsigned long systemTime);
     void GameOver();
     void GameClear();
 };
 
-void GameManager::SetStatus(GameStatus next)
+void GameManager::SetState(GameState next)
 {
-    if (next == GameStatus::Playing)
+    if (next == GameState::Playing)
     {
         mPlayingManager.Start();
     }
-    mGameStatus = next;
+    mGameState = next;
 }
 
 void GameManager::Execute()
 {
-    switch (mGameStatus)
+    //そのうち置き換え
+    mSystemTimeMs++;
+
+    switch (mGameState)
     {
-    case GameStatus::Title:
+    case GameState::Title:
         Title();
         break;
 
-    case GameStatus::Playing:
-        Playing();
+    case GameState::Playing:
+        Playing(mSystemTimeMs);
         break;
 
-    case GameStatus::GameOver:
+    case GameState::GameOver:
         GameOver();
         break;
 
-    case GameStatus::GameClear:
+    case GameState::GameClear:
         GameClear();
         break;
     }
@@ -516,15 +838,15 @@ void GameManager::Execute()
 // タイトル
 void GameManager::Title()
 {
-    if (mInputManager.IsPressed(Buttons::Rotate))
+    if (mInputManager.IsPressed(Button::Rotate))
     {
-        SetStatus(GameStatus::Playing);
+        SetState(GameState::Playing);
     }
 }
 // ゲーム中
-void GameManager::Playing()
+void GameManager::Playing(unsigned long systemTimeMs)
 {
-    mPlayingManager.Execute(mInputManager);
+    mPlayingManager.Execute(mInputManager, systemTimeMs);
 
     GameResult result = mPlayingManager.GetGameResult();
     switch (result)
@@ -533,29 +855,29 @@ void GameManager::Playing()
         break;
 
     case GameResult::GameOver:
-        SetStatus(GameStatus::GameOver);
+        SetState(GameState::GameOver);
         break;
 
     case GameResult::GameClear:
-        SetStatus(GameStatus::GameClear);
+        SetState(GameState::GameClear);
         break;
     }
 }
 // ゲームオーバー
 void GameManager::GameOver()
 {
-    if (mInputManager.IsPressed(Buttons::Rotate))
+    if (mInputManager.IsPressed(Button::Rotate))
     {
         // タイトルへ
-        SetStatus(GameStatus::Title);
+        SetState(GameState::Title);
     }
 }
 // ゲームクリア
 void GameManager::GameClear()
 {
-    if (mInputManager.IsPressed(Buttons::Rotate))
+    if (mInputManager.IsPressed(Button::Rotate))
     {
         // タイトルへ
-        SetStatus(GameStatus::Title);
+        SetState(GameState::Title);
     }
 }
